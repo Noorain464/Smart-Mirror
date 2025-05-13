@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAIError 
 import requests
+import base64
 class NLPProcessor:
     def __init__(self):
         
@@ -12,11 +13,14 @@ class NLPProcessor:
             raise ValueError("Missing OpenAI API Key. Set it in .env file.")
 
         self.client = openai.OpenAI(api_key=self.OPENAI_API_KEY) 
-
+    def encode_image(self, image_path):
+        """Encode image to base64 for OpenAI API"""
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
     def detect_intent(self, prompt):
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -60,47 +64,65 @@ class NLPProcessor:
         except requests.exceptions.RequestException as e:
             print(f"Error fetching wardrobe items: {e}")
             return None
-
-    def generate_response_with_images(self, text_input, image_urls):
-        """Send text + image URLs to OpenAI GPT-4 Vision."""
+    def generate_response(self, prompt):
+        """General purpose response generation"""
         try:
-            image_contents = [
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": url
-                    }
-                }
-                for url in image_urls
-            ]
-
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": text_input},
-                        *image_contents
-                    ]
-                }
-            ]
-
             response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                max_tokens=1000,
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a helpful smart mirror assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
             )
-
             return response.choices[0].message.content
-
         except OpenAIError as e:
             return f"⚠️ OpenAI API Error: {e}"
         except Exception as e:
             return f"⚠️ Unexpected Error: {e}"
-            
-if __name__ == "__main__":
-    nlp_processor = NLPProcessor()
-    image_urls = nlp_processor.fetch_wardrobe_items()
-
-    user_prompt = "Suggest only one stylish outfit using these wardrobe items for a party"
-    result = nlp_processor.generate_response_with_images(user_prompt, image_urls)
-    print(result)
+        
+    def generate_fashion_response(self, transcript, image_path, wardrobe_urls, requested_categories):
+        """Generate fashion response focused on requested categories"""
+        base64_image = self.encode_image(image_path)
+        
+        # Build system prompt based on what was requested
+        category_descriptions = {
+            "outfit": "clothing suggestions that would look good on the user",
+            "jewelry": "accessories that would complement the look",
+            "makeup": "makeup recommendations suitable for the user"
+        }
+        
+        requested = [category_descriptions[cat] for cat in requested_categories.split(",") if cat in category_descriptions]
+        system_prompt = f"You are a fashion expert. Provide {' and '.join(requested)} based on the user's appearance."
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": transcript},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        # Add wardrobe items if available
+        if wardrobe_urls:
+            for url in wardrobe_urls:
+                messages[1]["content"].append({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                })
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=1000,
+        )
+        
+        return response.choices[0].message.content

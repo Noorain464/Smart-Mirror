@@ -42,9 +42,3 @@ class SpeechRecognizer:
         finally:
             self._cleanup()
         return None
-
-# if __name__ == "__main__":
-#     recognizer = SpeechRecognizer()
-#     print("Speak after the beep...")
-#     result = recognizer.recognize()
-#     print(f"You said: {result}" if result else "No speech detected")
